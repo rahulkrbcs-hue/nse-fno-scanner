@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="NSE F&O Scanner — multi-factor scoring engine for Indian derivatives. Bollinger Bands, VCP, Smart Money, Camarilla, Traps, CRT/TBS, RSI Divergence." />
+  <title>NSE F&O QUANT SCANNER</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Animated grid background -->
+  <div class="bg-grid"></div>
+  <div class="bg-glow"></div>
+
+  <!-- HEADER -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">◢◤</div>
+      <div class="brand-text">
+        <div class="brand-name">NSE · F&amp;O QUANT</div>
+        <div class="brand-sub">EOD Multi-Factor Scoring Engine</div>
+      </div>
+    </div>
+
+    <div class="topbar-meta">
+      <div class="meta-pill"><span class="meta-dot live"></span><span>EOD · Yahoo Finance</span></div>
+      <div class="meta-pill"><span id="universe-count">—</span>&nbsp;Stocks in Universe</div>
+      <div class="meta-pill"><span id="last-updated">—</span></div>
+    </div>
+  </header>
+
+  <!-- CONTROL BAR -->
+  <section class="controls">
+    <div class="control-grp">
+      <label>UNIVERSE</label>
+      <select id="universe-select" class="ctrl">
+        <option value="all">All F&amp;O (~200)</option>
+        <option value="nifty50">NIFTY 50</option>
+        <option value="banknifty">BANK NIFTY</option>
+      </select>
+    </div>
+
+    <button id="scan-btn" class="btn-primary">▶ RUN SCAN</button>
+    <button id="export-btn" class="btn-secondary">⬇ EXPORT CSV</button>
+
+    <div class="progress" id="progress-wrap" style="display:none">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-label" id="progress-label">0 / 0</div>
+    </div>
+  </section>
+
+  <!-- STATS STRIP -->
+  <section class="stats-strip">
+    <div class="stat" data-verdict="all" title="Click to show all">
+      <div class="stat-num" id="stat-total">0</div>
+      <div class="stat-label">Analyzed</div>
+    </div>
+    <div class="stat stat-sb" data-verdict="STRONG BUY" title="Click to filter Strong Buy">
+      <div class="stat-num" id="stat-sb">0</div>
+      <div class="stat-label">Strong Buy</div>
+    </div>
+    <div class="stat stat-b" data-verdict="BUY" title="Click to filter Buy">
+      <div class="stat-num" id="stat-b">0</div>
+      <div class="stat-label">Buy</div>
+    </div>
+    <div class="stat stat-s" data-verdict="SELL" title="Click to filter Sell">
+      <div class="stat-num" id="stat-s">0</div>
+      <div class="stat-label">Sell</div>
+    </div>
+    <div class="stat stat-ss" data-verdict="STRONG SELL" title="Click to filter Strong Sell">
+      <div class="stat-num" id="stat-ss">0</div>
+      <div class="stat-label">Strong Sell</div>
+    </div>
+  </section>
+
+  <!-- FILTERS -->
+  <section class="filters">
+    <input id="filter-search" placeholder="🔍 Search symbol…" class="filter-input"/>
+    <select id="filter-verdict" class="filter-input">
+      <option value="all">All Verdicts</option>
+      <option value="STRONG BUY">Strong Buy</option>
+      <option value="BUY">Buy</option>
+      <option value="NEUTRAL">Neutral</option>
+      <option value="SELL">Sell</option>
+      <option value="STRONG SELL">Strong Sell</option>
+    </select>
+    <select id="filter-sector" class="filter-input">
+      <option value="all">All Sectors</option>
+    </select>
+    <input id="filter-min-score" type="number" placeholder="Min score" class="filter-input filter-narrow" min="-100" max="100"/>
+    <input id="filter-max-score" type="number" placeholder="Max score" class="filter-input filter-narrow" min="-100" max="100"/>
+  </section>
+
+  <!-- RESULTS TABLE -->
+  <main class="table-wrap">
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th class="th-rank">#</th>
+          <th data-sort="symbol">SYMBOL</th>
+          <th data-sort="price" class="th-num">LTP</th>
+          <th data-sort="change" class="th-num">%CHG</th>
+          <th>30D TREND</th>
+          <th data-sort="bb"          title="Bollinger Bands position & squeeze">BB</th>
+          <th data-sort="vcp"         title="Volume Contraction Pattern (Minervini)">VCP</th>
+          <th data-sort="smartMoney"  title="Accumulation/Distribution + OBV flow">SM$</th>
+          <th data-sort="camarilla"   title="Monthly Camarilla level position">CAM</th>
+          <th data-sort="traps"       title="Bull/Bear trap & level rejection">TRAP</th>
+          <th data-sort="breakout"    title="Breakout/Breakdown readiness">B/O</th>
+          <th data-sort="rsiDiv"      title="RSI Divergence + OB/OS">RSI</th>
+          <th data-sort="composite" class="sorted-desc">COMPOSITE</th>
+        </tr>
+      </thead>
+      <tbody id="results-tbody">
+        <tr><td colspan="13" class="empty-cell">
+          <div class="empty-state">
+            <div class="empty-icon">◷</div>
+            <div class="empty-title">READY TO SCAN</div>
+            <div class="empty-sub">Pick a universe and click <strong>RUN SCAN</strong>. Pulls EOD data and computes 9 indicator scores per stock. Takes about 60–90 seconds for the full F&amp;O list.</div>
+          </div>
+        </td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <!-- LEGEND -->
+  <section class="legend">
+    <details>
+      <summary>📖 How the scoring works — methodology</summary>
+      <div class="legend-grid">
+        <div class="legend-item">
+          <div class="legend-name">Bollinger Bands (BB)</div>
+          <div class="legend-desc">Position in BB(20,2), bandwidth squeeze percentile, mid-line slope. High score = riding upper band with expanding bandwidth.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">Volume Contraction (VCP)</div>
+          <div class="legend-desc">Minervini setup: sequential price contractions (each tighter), volume drying up, proximity to 52-week high. High score = pivot-ready base.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">Smart Money (SM$)</div>
+          <div class="legend-desc">Accumulation/Distribution line, OBV slope, high-volume green vs red days. Catches institutional flow before price confirms.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">Monthly Camarilla (CAM)</div>
+          <div class="legend-desc">Levels (H1-H4, L1-L4, Pivot) computed from previous calendar month's H/L/C. Position above H3 = bullish bias for the month.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">Bull / Bear Trap (TRAP)</div>
+          <div class="legend-desc">Detects false breakouts: price breached recent high/low then closed back inside the range. Common F&amp;O fake-out filter.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">CRT + TBS</div>
+          <div class="legend-desc">Candle Range Theory + Turtle Soup: identifies liquidity sweeps (price takes out a swing high/low) followed by reversal. ICT-style logic.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">Breakout / Breakdown (B/O)</div>
+          <div class="legend-desc">20-bar range tightness + distance to edge. Tight base + price hugging the top = imminent breakout candidate.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">RSI Divergence</div>
+          <div class="legend-desc">Compares price swings vs RSI(14) swings. Bullish div = price LL but RSI HL; bearish div = price HH but RSI LH. Plus OB/OS bias.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">EMA Stack (Bonus)</div>
+          <div class="legend-desc">20 &gt; 50 &gt; 200 stacked bullishly = strong trend. Built-in trend-confirmation filter.</div>
+        </div>
+        <div class="legend-item">
+          <div class="legend-name">Composite Score</div>
+          <div class="legend-desc">Weighted sum of all indicators, normalized to ±100. ≥50 Strong Buy, 20–49 Buy, ±19 Neutral, −20 to −49 Sell, ≤−50 Strong Sell.</div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <footer class="foot">
+    <div>NSE F&amp;O Quant Scanner · <span class="muted">Open-source. Data via Yahoo Finance EOD.</span></div>
+    <div class="muted">Not investment advice. Verify signals independently and risk-manage every trade.</div>
+  </footer>
+
+  <!-- DETAIL MODAL -->
+  <div id="detail-modal" class="modal">
+    <div class="modal-box">
+      <button id="modal-close" class="modal-close">✕</button>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <script src="stocks.js"></script>
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
