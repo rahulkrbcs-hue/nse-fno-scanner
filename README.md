@@ -1,8 +1,35 @@
 # 📈 NSE F&O Quant Scanner
 
-A **multi-factor, multi-timeframe scoring engine** for Indian derivatives (NSE F&O segment) that runs entirely in your browser. Pulls OHLCV data from Yahoo Finance on three timeframes — **1 Hour, Daily (EOD), and Weekly** — computes 9 technical indicators per stock, and ranks ~200 F&O stocks with a composite **STRONG BUY / BUY / NEUTRAL / SELL / STRONG SELL** verdict.
+A **multi-factor, multi-timeframe scoring engine** for Indian derivatives (NSE F&O segment) that runs entirely in your browser. Pulls OHLCV data from Yahoo Finance on three timeframes — **1 Hour, Daily (EOD), and Weekly** — PLUS official **NSE F&O Bhavcopy** for Open Interest data, computes **10 technical indicators** per stock, and ranks ~200 F&O stocks with a composite **STRONG BUY / BUY / NEUTRAL / SELL / STRONG SELL** verdict.
 
 **Live demo:** Deploy to GitHub Pages in 5 minutes (see below).
+
+---
+
+## 🆕 NSE Bhavcopy Integration (Open Interest)
+
+The scanner fetches the official NSE F&O bhavcopy zip file (UDiFF format, post Jul 2024 schema) on every 1D scan and overlays **Open Interest data** that Yahoo Finance does not provide:
+
+- **OI** (current open contracts for nearest-month futures)
+- **OI Change %** (today's positioning shift)
+- **Total OI across all expiries**
+- **Settle Price** (official close)
+
+Classified into the **4 classic F&O setups**:
+
+| Price | OI    | Setup            | Score        |
+|-------|-------|------------------|--------------|
+| ↑     | ↑     | **LONG BUILDUP**  | +4 to +10 (bullish, strong) |
+| ↓     | ↑     | **SHORT BUILDUP** | -4 to -10 (bearish, strong) |
+| ↑     | ↓     | **SHORT COVERING**| +3 to +7  (bullish, weaker) |
+| ↓     | ↓     | **LONG UNWINDING**| -3 to -7  (bearish, weaker) |
+
+The OI signal gets the **highest weight (2.0×)** in the composite score when available, because it represents real F&O positioning rather than just price action.
+
+**Note on availability:**
+- NSE bhavcopy publishes ~6 PM IST daily. If you scan earlier or on a holiday, the scanner walks back through the last 7 trading days to find the most recent available file.
+- NSE blocks direct browser requests, so the scanner uses CORS proxies. If all proxies are blocked (rare), the scanner gracefully runs without OI overlay.
+- OI is only meaningful on the **1D timeframe** (intraday hourly bars don't have OI per bar).
 
 ---
 

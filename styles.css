@@ -403,6 +403,35 @@ html, body {
 .chip-bear-light { background: rgba(255, 107, 107, 0.06); color: var(--bear-dim); }
 .chip-neut       { background: var(--bg-elev); color: var(--text-mute); }
 
+/* OI Setup chips (NSE bhavcopy) */
+.td-oi { white-space: nowrap; }
+.oi-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  letter-spacing: 0.2px;
+  min-width: 64px;
+  justify-content: center;
+}
+.oi-chip .oi-pct { font-size: 9px; opacity: 0.75; }
+.oi-lb   { background: rgba(93, 255, 182, 0.18); color: var(--bull); border-color: rgba(93, 255, 182, 0.4); box-shadow: 0 0 6px rgba(93, 255, 182, 0.15); }
+.oi-sc   { background: rgba(93, 255, 182, 0.08); color: var(--bull-dim); }
+.oi-sb   { background: rgba(255, 107, 107, 0.18); color: var(--bear); border-color: rgba(255, 107, 107, 0.4); box-shadow: 0 0 6px rgba(255, 107, 107, 0.15); }
+.oi-lu   { background: rgba(255, 107, 107, 0.08); color: var(--bear-dim); }
+.oi-none { background: var(--bg-elev); color: var(--text-dim); font-size: 10px; }
+
+/* OI status pill in topbar */
+#oi-status { transition: all 0.3s; }
+#oi-status.oi-active {
+  border-color: rgba(93, 255, 182, 0.4);
+  color: var(--bull);
+  background: rgba(93, 255, 182, 0.06);
+}
+
 /* =========== COMPOSITE =========== */
 .td-score { text-align: right; }
 .composite {

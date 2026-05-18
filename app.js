@@ -71,12 +71,33 @@ function scoreChip(s) {
   return `<span class="chip ${cls}" title="${s.label}: ${s.detail || ''}">${sign}${s.score}</span>`;
 }
 
+// ---------- OI Setup chip ----------
+function oiSetupChip(r) {
+  if (!r.oiInfo) return `<span class="oi-chip oi-none" title="No bhavcopy data">—</span>`;
+  const setup = r.oiInfo.setup;
+  const chgPct = r.oiInfo.oiChgPct;
+  const cls = {
+    "LONG BUILDUP":   "oi-lb",
+    "SHORT COVERING": "oi-sc",
+    "SHORT BUILDUP":  "oi-sb",
+    "LONG UNWINDING": "oi-lu",
+  }[setup] || "oi-none";
+  const setupShort = {
+    "LONG BUILDUP":   "L⤴",
+    "SHORT COVERING": "Cv",
+    "SHORT BUILDUP":  "S⤵",
+    "LONG UNWINDING": "Uw",
+  }[setup] || "—";
+  const tip = setup === "—" ? "No clear OI setup" : `${setup} · OI ${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(1)}%`;
+  return `<span class="oi-chip ${cls}" title="${tip}">${setupShort} <span class="oi-pct">${chgPct >= 0 ? "+" : ""}${chgPct.toFixed(0)}%</span></span>`;
+}
+
 // ---------- Render results table ----------
 function renderTable() {
   const tbody = document.getElementById("results-tbody");
   if (!tbody) return;
   if (!STATE.filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="13" class="empty-cell">${
+    tbody.innerHTML = `<tr><td colspan="14" class="empty-cell">${
       STATE.scanning ? "Scanning… first results coming." : "No results yet. Click Run Scan."
     }</td></tr>`;
     return;
@@ -105,6 +126,7 @@ function renderTable() {
         <td>${scoreChip(r.scores.traps)}</td>
         <td>${scoreChip(r.scores.breakout)}</td>
         <td>${scoreChip(r.scores.rsiDiv)}</td>
+        <td class="td-oi">${oiSetupChip(r)}</td>
         <td class="td-score">
           <div class="composite ${r.verdict.cls}">
             <span class="comp-num">${r.composite.toFixed(0)}</span>
@@ -173,6 +195,7 @@ function sortFiltered() {
     traps:      r => r.scores.traps.score,
     breakout:   r => r.scores.breakout.score,
     rsiDiv:     r => r.scores.rsiDiv.score,
+    oi:         r => r.scores.oi ? r.scores.oi.score : 0,
   }[k] || (r => r.composite);
   STATE.filtered.sort((a, b) => {
     const va = accessor(a), vb = accessor(b);
@@ -202,6 +225,7 @@ function openDetail(idx) {
       breakout: "Breakout Potential",
       rsiDiv: "RSI Divergence",
       emaStack: "EMA Trend Stack",
+      oi: "★ OI Setup (NSE Bhavcopy)",
     }[k] || k;
     return `
       <div class="score-row">
@@ -266,6 +290,15 @@ function openDetail(idx) {
         <h3>Monthly Camarilla Levels</h3>
         ${camRows}
 
+        ${r.oiInfo ? `
+        <h3 style="margin-top:24px">★ Open Interest (NSE Bhavcopy)</h3>
+        <table class="cam-table">
+          <tr><td>Setup</td><td colspan="2"><strong class="oi-chip oi-${{"LONG BUILDUP":"lb","SHORT COVERING":"sc","SHORT BUILDUP":"sb","LONG UNWINDING":"lu"}[r.oiInfo.setup] || "none"}">${r.oiInfo.setup}</strong></td></tr>
+          <tr><td>Near-month OI</td><td>${fmt.vol(r.oiInfo.oi)}</td><td class="${r.oiInfo.oiChgPct >= 0 ? "pos" : "neg"}">${r.oiInfo.oiChgPct >= 0 ? "+" : ""}${r.oiInfo.oiChgPct.toFixed(2)}%</td></tr>
+          <tr><td>Total OI (all expiries)</td><td>${fmt.vol(r.oiInfo.totalOI)}</td><td class="${r.oiInfo.totalOIChg >= 0 ? "pos" : "neg"}">${r.oiInfo.totalOIChg >= 0 ? "+" : ""}${fmt.vol(Math.abs(r.oiInfo.totalOIChg))}</td></tr>
+          <tr><td>Near Expiry</td><td colspan="2">${r.oiInfo.expiry || "—"}</td></tr>
+        </table>` : `<p class="muted" style="margin-top:16px">★ OI data not available (bhavcopy not yet published, or this stock not in F&amp;O segment).</p>`}
+
         <h3 style="margin-top:24px">Trade Plan (Suggested)</h3>
         <table class="trade-table">
           <tr><td>Side</td><td><strong>${r.trade.side}</strong></td></tr>
@@ -326,10 +359,36 @@ async function runScan() {
   }
 
   const total = stocks.length;
+
+  // -------- Prefetch NSE bhavcopy for OI data (only on 1D timeframe) --------
+  let oiData = null;
+  if (STATE.timeframe === "1d" && window.Bhavcopy) {
+    progressLabel.textContent = "Fetching NSE F&O bhavcopy for Open Interest data…";
+    const bhav = await window.Bhavcopy.fetchLatestBhavcopy((msg) => {
+      progressLabel.textContent = msg;
+    });
+    if (bhav) {
+      oiData = bhav.summary;
+      STATE.bhavcopyDate = bhav.date;
+      // Update OI status pill
+      const oiPill = document.getElementById("oi-status");
+      if (oiPill) {
+        oiPill.textContent = `OI: ${window.Bhavcopy.fmtNSEDate(bhav.date)} (${oiData.size} stocks)`;
+        oiPill.classList.add("oi-active");
+      }
+    } else {
+      const oiPill = document.getElementById("oi-status");
+      if (oiPill) oiPill.textContent = "OI: unavailable";
+    }
+  } else {
+    const oiPill = document.getElementById("oi-status");
+    if (oiPill) oiPill.textContent = STATE.timeframe === "1d" ? "OI: loading…" : "OI: 1D only";
+  }
+
   await runWithConcurrency(
     stocks,
     async (s) => {
-      const r = await FNOEngine.analyzeStock(s.symbol, STATE.timeframe);
+      const r = await FNOEngine.analyzeStock(s.symbol, STATE.timeframe, oiData);
       STATE.results.push(r);
       // Re-render incrementally every 5 stocks
       if (STATE.results.length % 5 === 0) {
@@ -341,7 +400,7 @@ async function runScan() {
     STATE.timeframe === "1h" ? 4 : 6,    // hourly is heavier — back off a bit
     (done) => {
       progressBar.style.width = `${(done / total) * 100}%`;
-      progressLabel.textContent = `${done} / ${total} stocks analyzed`;
+      progressLabel.textContent = `${done} / ${total} stocks analyzed${oiData ? " · OI overlay active" : ""}`;
     }
   );
 
@@ -357,13 +416,16 @@ async function runScan() {
 // ---------- Export CSV ----------
 function exportCSV() {
   if (!STATE.filtered.length) return alert("Nothing to export. Run a scan first.");
-  const rows = [["Symbol", "Price", "Change %", "BB", "VCP", "SmartMoney", "Camarilla", "Traps", "CRT/TBS", "Breakout", "RSI Div", "EMA", "Composite", "Verdict"]];
+  const rows = [["Symbol", "Price", "Change %", "BB", "VCP", "SmartMoney", "Camarilla", "Traps", "CRT/TBS", "Breakout", "RSI Div", "EMA", "OI Setup", "OI Chg %", "Near-Mo OI", "Composite", "Verdict"]];
   for (const r of STATE.filtered) {
     rows.push([
       r.symbol, r.price.toFixed(2), r.changePct.toFixed(2),
       r.scores.bb.score, r.scores.vcp.score, r.scores.smartMoney.score,
       r.scores.camarilla.score, r.scores.traps.score, r.scores.crtTbs.score,
       r.scores.breakout.score, r.scores.rsiDiv.score, r.scores.emaStack.score,
+      r.oiInfo ? r.oiInfo.setup : "—",
+      r.oiInfo ? r.oiInfo.oiChgPct.toFixed(2) : "—",
+      r.oiInfo ? r.oiInfo.oi.toFixed(0) : "—",
       r.composite.toFixed(1), r.verdict.tag,
     ]);
   }

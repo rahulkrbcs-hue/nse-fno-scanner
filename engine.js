@@ -558,6 +558,7 @@ const WEIGHTS = {
   breakout:   1.3,
   rsiDiv:     1.0,
   emaStack:   1.0,
+  oi:         2.0,   // ★ NSE bhavcopy OI signal — highest weight when present (true F&O positioning)
 };
 
 function compositeScore(scores) {
@@ -584,7 +585,7 @@ function verdict(score) {
 // ============================================================================
 // MAIN ANALYZER — called per stock
 // ============================================================================
-async function analyzeStock(symbol, timeframeKey = "1d") {
+async function analyzeStock(symbol, timeframeKey = "1d", oiData = null) {
   const tf = TIMEFRAMES[timeframeKey] || TIMEFRAMES["1d"];
   const bars = await fetchYahoo(symbol, timeframeKey);
   if (!bars || bars.length < 30) throw new Error("Not enough data");
@@ -607,6 +608,25 @@ async function analyzeStock(symbol, timeframeKey = "1d") {
     emaStack:   scoreEMAStack(bars),
   };
 
+  // -------- OI Score (only on 1D timeframe, only if bhavcopy data available) --------
+  // OI is an EOD concept tied to the futures contract — doesn't make sense for 1H bars.
+  let oiInfo = null;
+  if (oiData && window.Bhavcopy && timeframeKey === "1d") {
+    const oi = oiData.get(symbol);
+    if (oi) {
+      scores.oi = window.Bhavcopy.scoreOI(changePct, oi.oiChgPct);
+      oiInfo = {
+        oi: oi.oi,
+        oiChg: oi.oiChg,
+        oiChgPct: oi.oiChgPct,
+        totalOI: oi.totalOI,
+        totalOIChg: oi.totalOIChg,
+        expiry: oi.expiry,
+        setup: scores.oi.setup,
+      };
+    }
+  }
+
   const composite = compositeScore(scores);
   const v = verdict(composite);
 
@@ -625,6 +645,7 @@ async function analyzeStock(symbol, timeframeKey = "1d") {
     bars, scores,
     composite, verdict: v,
     atr: a, trade,
+    oiInfo,
     asOf: lastBar.t,
   };
 }

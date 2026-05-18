@@ -42,6 +42,7 @@
       </div>
       <div class="meta-pill"><span id="universe-count">—</span>&nbsp;Stocks</div>
       <div class="meta-pill meta-pill-wide" id="tf-pill-desc">End-of-Day bars · monthly Camarilla · swing trading</div>
+      <div class="meta-pill" id="oi-status" title="NSE F&O Bhavcopy OI overlay status">OI: idle</div>
     </div>
   </header>
 
@@ -124,15 +125,16 @@
           <th data-sort="traps"       title="Bull/Bear trap & level rejection">TRAP</th>
           <th data-sort="breakout"    title="Breakout/Breakdown readiness">B/O</th>
           <th data-sort="rsiDiv"      title="RSI Divergence + OB/OS">RSI</th>
+          <th data-sort="oi"          title="NSE Bhavcopy OI Setup: Long Buildup/Short Buildup/Covering/Unwinding">OI</th>
           <th data-sort="composite" class="sorted-desc">COMPOSITE</th>
         </tr>
       </thead>
       <tbody id="results-tbody">
-        <tr><td colspan="13" class="empty-cell">
+        <tr><td colspan="14" class="empty-cell">
           <div class="empty-state">
             <div class="empty-icon">◷</div>
             <div class="empty-title">READY TO SCAN</div>
-            <div class="empty-sub">Pick a universe and click <strong>RUN SCAN</strong>. Pulls EOD data and computes 9 indicator scores per stock. Takes about 60–90 seconds for the full F&amp;O list.</div>
+            <div class="empty-sub">Pick a universe and click <strong>RUN SCAN</strong>. Pulls EOD data + NSE F&amp;O bhavcopy for Open Interest. Computes 10 indicators per stock. Takes ~60–120 seconds.</div>
           </div>
         </td></tr>
       </tbody>
@@ -181,6 +183,10 @@
           <div class="legend-desc">20 &gt; 50 &gt; 200 stacked bullishly = strong trend. Built-in trend-confirmation filter.</div>
         </div>
         <div class="legend-item">
+          <div class="legend-name">OI Setup (NSE Bhavcopy)</div>
+          <div class="legend-desc">★ From official NSE F&amp;O bhavcopy. Combines today's price move with Open Interest change: <strong>Long Buildup</strong> (Px↑ + OI↑, bullish), <strong>Short Buildup</strong> (Px↓ + OI↑, bearish), <strong>Short Covering</strong> (Px↑ + OI↓, bullish weaker), <strong>Long Unwinding</strong> (Px↓ + OI↓, bearish weaker). Highest weight in composite when available.</div>
+        </div>
+        <div class="legend-item">
           <div class="legend-name">Composite Score</div>
           <div class="legend-desc">Weighted sum of all indicators, normalized to ±100. ≥50 Strong Buy, 20–49 Buy, ±19 Neutral, −20 to −49 Sell, ≤−50 Strong Sell.</div>
         </div>
@@ -201,7 +207,11 @@
     </div>
   </div>
 
+  <!-- JSZip for parsing NSE bhavcopy zip files -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
   <script src="stocks.js"></script>
+  <script src="bhavcopy.js"></script>
   <script src="engine.js"></script>
   <script src="app.js"></script>
 </body>
