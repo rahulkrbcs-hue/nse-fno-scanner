@@ -395,6 +395,22 @@ function init() {
   ["filter-verdict","filter-sector","filter-search","filter-min-score","filter-max-score"]
     .forEach(id => document.getElementById(id).addEventListener("input", applyFilters));
 
+  // Stat-card click → filter by verdict
+  document.querySelectorAll(".stat[data-verdict]").forEach(stat => {
+    stat.addEventListener("click", () => {
+      const v = stat.dataset.verdict;
+      const sel = document.getElementById("filter-verdict");
+      // Toggle: clicking the same active card resets to "all"
+      sel.value = (sel.value === v) ? "all" : v;
+      // Visual: mark active card
+      document.querySelectorAll(".stat[data-verdict]").forEach(s => s.classList.remove("stat-active"));
+      if (sel.value !== "all") stat.classList.add("stat-active");
+      applyFilters();
+      // Scroll to results table for clarity
+      document.querySelector(".table-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
   // Sort by column header
   document.querySelectorAll("th[data-sort]").forEach(th => {
     th.addEventListener("click", () => {
