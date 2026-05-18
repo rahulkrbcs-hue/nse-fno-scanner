@@ -60,6 +60,32 @@
     <button id="scan-btn" class="btn-primary">▶ RUN SCAN</button>
     <button id="export-btn" class="btn-secondary">⬇ EXPORT CSV</button>
 
+    <!-- Auto-scan group -->
+    <div class="auto-scan-group">
+      <label class="auto-scan-toggle-wrap" title="Toggle auto-scan on/off">
+        <input type="checkbox" id="auto-scan-toggle" />
+        <span class="auto-scan-slider"></span>
+        <span class="auto-scan-label">AUTO</span>
+      </label>
+      <select id="auto-scan-interval" class="ctrl ctrl-narrow" title="How often to auto-scan">
+        <option value="15">15 min</option>
+        <option value="30" selected>30 min</option>
+        <option value="60">60 min</option>
+        <option value="120">2 hr</option>
+      </select>
+      <label class="mini-toggle" title="Only auto-scan during NSE market hours (9:15 AM – 6:00 PM IST, Mon–Fri)">
+        <input type="checkbox" id="market-hours-toggle" checked />
+        <span>Market hrs only</span>
+      </label>
+      <div class="auto-scan-status">
+        <span class="auto-dot dot-off" id="auto-scan-dot"></span>
+        <div class="auto-scan-info">
+          <span id="last-scan">Last: never</span>
+          <span id="next-scan">Auto: OFF</span>
+        </div>
+      </div>
+    </div>
+
     <div class="progress" id="progress-wrap" style="display:none">
       <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
       <div class="progress-label" id="progress-label">0 / 0</div>

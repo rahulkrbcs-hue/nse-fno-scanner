@@ -11,7 +11,114 @@ const STATE = {
   scanning: false,
   scanIndex: 0,
   errors: [],
+
+  // ---- Auto-scan & persistence ----
+  autoScan: false,            // is auto-scan toggled on?
+  autoScanInterval: 30,       // minutes between auto-scans (15, 30, 60)
+  marketHoursOnly: true,      // only auto-scan during NSE market hours
+  lastScanAt: null,           // ISO timestamp of last successful scan
+  lastScanTimeframe: null,    // which timeframe was last scanned
+  autoScanTimerId: null,      // setInterval handle
+  countdownTimerId: null,     // setInterval handle for UI countdown
+  bhavcopyDate: null,
 };
+
+// ============================================================================
+// LOCAL STORAGE — persist last scan + settings
+// ============================================================================
+const STORAGE_KEY = "nse-fno-scanner-v1";
+const SETTINGS_KEY = "nse-fno-scanner-settings-v1";
+
+function saveResults() {
+  try {
+    // Strip the heavy `bars` array before storing — we only need it during the
+    // live session for re-rendering sparklines. Reduces storage from ~5MB to ~200KB.
+    const lite = STATE.results.map(r => {
+      const closes30 = r.bars.slice(-30).map(b => b.c); // keep 30-bar spark only
+      const closes90 = r.bars.slice(-90).map(b => b.c); // keep 90-bar modal chart
+      return { ...r, bars: undefined, closes30, closes90 };
+    });
+    const payload = {
+      timestamp: STATE.lastScanAt,
+      timeframe: STATE.lastScanTimeframe,
+      bhavcopyDate: STATE.bhavcopyDate,
+      results: lite,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.warn("Could not save results to localStorage:", e.message);
+  }
+}
+
+function loadResults() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const payload = JSON.parse(raw);
+    if (!payload?.results?.length) return false;
+    // Re-hydrate: synthesize a minimal `bars` array from `closes30` for sparkline
+    STATE.results = payload.results.map(r => ({
+      ...r,
+      bars: (r.closes30 || []).map(c => ({ c })),
+    }));
+    STATE.lastScanAt = payload.timestamp;
+    STATE.lastScanTimeframe = payload.timeframe;
+    STATE.bhavcopyDate = payload.bhavcopyDate;
+    return true;
+  } catch (e) {
+    console.warn("Could not load saved results:", e.message);
+    return false;
+  }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+      autoScan: STATE.autoScan,
+      autoScanInterval: STATE.autoScanInterval,
+      marketHoursOnly: STATE.marketHoursOnly,
+      timeframe: STATE.timeframe,
+    }));
+  } catch (e) {}
+}
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (typeof s.autoScan === "boolean") STATE.autoScan = s.autoScan;
+    if (s.autoScanInterval) STATE.autoScanInterval = s.autoScanInterval;
+    if (typeof s.marketHoursOnly === "boolean") STATE.marketHoursOnly = s.marketHoursOnly;
+    if (s.timeframe) STATE.timeframe = s.timeframe;
+  } catch (e) {}
+}
+
+// ============================================================================
+// MARKET HOURS — NSE: Mon–Fri, 9:15 AM – 3:30 PM IST (UTC+5:30)
+// ============================================================================
+function isMarketOpen(now = new Date()) {
+  // Convert local time to IST. IST = UTC+5:30
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const ist = new Date(utc + (5.5 * 60 * 60 * 1000));
+  const dow = ist.getDay();           // 0=Sun, 6=Sat
+  if (dow === 0 || dow === 6) return false;
+  const mins = ist.getHours() * 60 + ist.getMinutes();
+  // 9:15 = 555, 15:30 = 930 — extend to 6 PM (1080) to include bhavcopy publication window
+  return mins >= 555 && mins <= 1080;
+}
+
+function timeSinceText(iso) {
+  if (!iso) return "never";
+  const diff = Date.now() - new Date(iso).getTime();
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ${min % 60}m ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
 
 // ---------- Concurrency-limited parallel runner ----------
 async function runWithConcurrency(items, worker, concurrency, onProgress) {
@@ -407,10 +514,15 @@ async function runScan() {
   applyFilters();
   renderStats();
   STATE.scanning = false;
+  STATE.lastScanAt = new Date().toISOString();
+  STATE.lastScanTimeframe = STATE.timeframe;
   btn.textContent = "🔄 Re-Run Scan";
   btn.disabled = false;
   if (STATE.errors.length)
     progressLabel.textContent += ` · ${STATE.errors.length} failed (rate limited / no data)`;
+  // Persist results for next page load
+  if (STATE.results.length) saveResults();
+  renderAutoScanStatus();
 }
 
 // ---------- Export CSV ----------
@@ -437,8 +549,99 @@ function exportCSV() {
   a.click();
 }
 
-// ---------- Init ----------
+// ============================================================================
+// AUTO-SCAN CONTROLLER
+// ============================================================================
+function startAutoScan() {
+  stopAutoScan();
+  STATE.autoScan = true;
+  saveSettings();
+  // Check every minute whether to trigger a scan (lighter than full interval)
+  STATE.autoScanTimerId = setInterval(autoScanTick, 60 * 1000);
+  // Update countdown UI every 5 seconds
+  STATE.countdownTimerId = setInterval(renderAutoScanStatus, 5000);
+  renderAutoScanStatus();
+}
+
+function stopAutoScan() {
+  STATE.autoScan = false;
+  if (STATE.autoScanTimerId) { clearInterval(STATE.autoScanTimerId); STATE.autoScanTimerId = null; }
+  if (STATE.countdownTimerId) { clearInterval(STATE.countdownTimerId); STATE.countdownTimerId = null; }
+  saveSettings();
+  renderAutoScanStatus();
+}
+
+function autoScanTick() {
+  if (STATE.scanning) return;
+  if (!STATE.lastScanAt) return;
+  if (STATE.marketHoursOnly && !isMarketOpen()) { renderAutoScanStatus(); return; }
+  const elapsedMin = (Date.now() - new Date(STATE.lastScanAt).getTime()) / 60000;
+  if (elapsedMin < STATE.autoScanInterval) { renderAutoScanStatus(); return; }
+  console.log("[auto-scan] Triggering scheduled scan");
+  runScan();
+}
+
+function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+
+function renderAutoScanStatus() {
+  const lastEl = document.getElementById("last-scan");
+  const nextEl = document.getElementById("next-scan");
+  const dotEl  = document.getElementById("auto-scan-dot");
+  if (!lastEl || !nextEl) return;
+
+  if (STATE.lastScanAt) {
+    const tf = STATE.lastScanTimeframe ? `· ${STATE.lastScanTimeframe.toUpperCase()}` : "";
+    lastEl.textContent = `Last: ${timeSinceText(STATE.lastScanAt)} ${tf}`;
+    lastEl.title = `Last scan: ${new Date(STATE.lastScanAt).toLocaleString("en-IN")}`;
+  } else {
+    lastEl.textContent = "Last: never";
+  }
+
+  if (STATE.autoScan && STATE.lastScanAt) {
+    if (STATE.marketHoursOnly && !isMarketOpen()) {
+      nextEl.textContent = "Auto: paused (market closed)";
+      if (dotEl) dotEl.className = "auto-dot dot-paused";
+    } else {
+      const nextMs = new Date(STATE.lastScanAt).getTime() + STATE.autoScanInterval * 60000;
+      const remaining = nextMs - Date.now();
+      if (remaining <= 0) {
+        nextEl.textContent = "Auto: running soon…";
+      } else {
+        const min = Math.floor(remaining / 60000);
+        const sec = Math.floor((remaining % 60000) / 1000);
+        nextEl.textContent = `Next: ${min}m ${pad2(sec)}s`;
+      }
+      if (dotEl) dotEl.className = "auto-dot dot-live";
+    }
+  } else if (STATE.autoScan) {
+    nextEl.textContent = "Auto: waiting for 1st scan";
+    if (dotEl) dotEl.className = "auto-dot dot-live";
+  } else {
+    nextEl.textContent = "Auto: OFF";
+    if (dotEl) dotEl.className = "auto-dot dot-off";
+  }
+}
+
+// ============================================================================
+// INIT
+// ============================================================================
 function init() {
+  // -------- Load persisted settings + last results --------
+  loadSettings();
+  const hadCachedResults = loadResults();
+
+  // Reflect timeframe from settings on the toggle
+  if (STATE.timeframe !== "1d") {
+    document.querySelectorAll(".tf-btn").forEach(b => {
+      b.classList.toggle("tf-active", b.dataset.tf === STATE.timeframe);
+    });
+    const tfInfo = FNOEngine.TIMEFRAMES[STATE.timeframe];
+    if (tfInfo) {
+      document.getElementById("tf-pill-label").textContent = tfInfo.label;
+      document.getElementById("tf-pill-desc").textContent = tfInfo.description;
+    }
+  }
+
   // Populate sector filter
   const sectors = [...new Set(FNO_STOCKS.map(s => s.sector))].sort();
   const sectorSel = document.getElementById("filter-sector");
@@ -458,12 +661,42 @@ function init() {
   ["filter-verdict","filter-sector","filter-search","filter-min-score","filter-max-score"]
     .forEach(id => document.getElementById(id).addEventListener("input", applyFilters));
 
+  // -------- Auto-scan controls --------
+  const autoToggle = document.getElementById("auto-scan-toggle");
+  const intervalSel = document.getElementById("auto-scan-interval");
+  const marketOnlyToggle = document.getElementById("market-hours-toggle");
+
+  if (autoToggle) {
+    autoToggle.checked = STATE.autoScan;
+    autoToggle.addEventListener("change", () => {
+      if (autoToggle.checked) startAutoScan();
+      else stopAutoScan();
+    });
+  }
+  if (intervalSel) {
+    intervalSel.value = String(STATE.autoScanInterval);
+    intervalSel.addEventListener("change", () => {
+      STATE.autoScanInterval = parseInt(intervalSel.value) || 30;
+      saveSettings();
+      renderAutoScanStatus();
+    });
+  }
+  if (marketOnlyToggle) {
+    marketOnlyToggle.checked = STATE.marketHoursOnly;
+    marketOnlyToggle.addEventListener("change", () => {
+      STATE.marketHoursOnly = marketOnlyToggle.checked;
+      saveSettings();
+      renderAutoScanStatus();
+    });
+  }
+
   // Timeframe toggle → switch timeframe, clear results, auto-rescan
   document.querySelectorAll(".tf-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const tf = btn.dataset.tf;
       if (STATE.scanning || tf === STATE.timeframe) return;
       STATE.timeframe = tf;
+      saveSettings();
       // Update active state
       document.querySelectorAll(".tf-btn").forEach(b => b.classList.remove("tf-active"));
       btn.classList.add("tf-active");
@@ -488,13 +721,10 @@ function init() {
     stat.addEventListener("click", () => {
       const v = stat.dataset.verdict;
       const sel = document.getElementById("filter-verdict");
-      // Toggle: clicking the same active card resets to "all"
       sel.value = (sel.value === v) ? "all" : v;
-      // Visual: mark active card
       document.querySelectorAll(".stat[data-verdict]").forEach(s => s.classList.remove("stat-active"));
       if (sel.value !== "all") stat.classList.add("stat-active");
       applyFilters();
-      // Scroll to results table for clarity
       document.querySelector(".table-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
@@ -513,6 +743,26 @@ function init() {
 
   // Show universe size
   document.getElementById("universe-count").textContent = FNO_STOCKS.length;
+
+  // -------- Restore last scan if cached --------
+  if (hadCachedResults) {
+    applyFilters();
+    renderStats();
+    // Restore OI pill text if we have a bhavcopy date
+    if (STATE.bhavcopyDate) {
+      const oiPill = document.getElementById("oi-status");
+      if (oiPill) {
+        const d = new Date(STATE.bhavcopyDate);
+        const ymd = `${d.getFullYear()}${pad2(d.getMonth()+1)}${pad2(d.getDate())}`;
+        oiPill.textContent = `OI: ${ymd} (cached)`;
+        oiPill.classList.add("oi-active");
+      }
+    }
+  }
+
+  // -------- Resume auto-scan if it was on before --------
+  if (STATE.autoScan) startAutoScan();
+  renderAutoScanStatus();
 }
 
 document.addEventListener("DOMContentLoaded", init);
