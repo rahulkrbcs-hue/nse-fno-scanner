@@ -1,6 +1,6 @@
 // ============================================================================
 // NSE F&O SCANNER - Technical Analysis Engine
-// All calculations done in browser on EOD data from Yahoo Finance
+// Multi-timeframe: 1H (intraday), 1D (EOD/daily), 1W (weekly)
 // ============================================================================
 
 // -------- CORS proxies (rotated on failure) --------
@@ -10,13 +10,23 @@ const CORS_PROXIES = [
   url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
 
-// -------- Yahoo Finance EOD fetch --------
-async function fetchYahooEOD(symbol, range = "6mo", interval = "1d") {
-  // NSE symbols need .NS suffix; symbols starting with ^ are indices (no suffix)
+// -------- Timeframe configurations --------
+// Yahoo Finance interval limits:
+//   60m: max range 730d   |   1d: any range   |   1wk: any range
+const TIMEFRAMES = {
+  "1h":  { range: "60d", interval: "60m", label: "1 HOUR",  camarillaPeriod: "day",     description: "Hourly bars · daily Camarilla · intraday F&O setups" },
+  "1d":  { range: "1y",  interval: "1d",  label: "DAILY",   camarillaPeriod: "month",   description: "End-of-Day bars · monthly Camarilla · swing trading" },
+  "1wk": { range: "5y",  interval: "1wk", label: "WEEKLY",  camarillaPeriod: "quarter", description: "Weekly bars · quarterly Camarilla · positional trades" },
+};
+
+// -------- Yahoo Finance OHLCV fetch (any supported timeframe) --------
+async function fetchYahoo(symbol, timeframeKey = "1d") {
+  const tf = TIMEFRAMES[timeframeKey] || TIMEFRAMES["1d"];
+  // NSE symbols need .NS suffix; symbols starting with ^ are indices
   const ySym = symbol.startsWith("^") ? symbol : `${symbol}.NS`;
   const url =
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ySym)}` +
-    `?range=${range}&interval=${interval}&includePrePost=false&events=div%2Csplit`;
+    `?range=${tf.range}&interval=${tf.interval}&includePrePost=false&events=div%2Csplit`;
 
   let lastErr;
   for (const proxy of CORS_PROXIES) {
@@ -29,7 +39,6 @@ async function fetchYahooEOD(symbol, range = "6mo", interval = "1d") {
       const ts = r.timestamp || [];
       const q  = r.indicators?.quote?.[0] || {};
       const adj = r.indicators?.adjclose?.[0]?.adjclose || q.close || [];
-      // Pack into OHLCV bars, drop nulls
       const bars = [];
       for (let i = 0; i < ts.length; i++) {
         if (q.open?.[i] == null || q.high?.[i] == null || q.low?.[i] == null || q.close?.[i] == null) continue;
@@ -48,6 +57,9 @@ async function fetchYahooEOD(symbol, range = "6mo", interval = "1d") {
   }
   throw lastErr || new Error("All proxies failed");
 }
+
+// Back-compat alias
+const fetchYahooEOD = (sym, range, interval) => fetchYahoo(sym, "1d");
 
 // ============================================================================
 // PRIMITIVE INDICATORS
@@ -306,49 +318,72 @@ function scoreSmartMoney(bars) {
   };
 }
 
-// -------- 4. Monthly Camarilla Levels & Pivot --------
-function scoreCamarilla(bars) {
-  if (bars.length < 25) return zero("Camarilla", "need 25+ bars");
-  // Use previous calendar month's H, L, C
+// -------- 4. Camarilla Levels & Pivot (timeframe-aware) --------
+// period: "day" → previous trading day's H/L/C (for 1H bars, intraday setups)
+//         "month" → previous calendar month's H/L/C (for 1D bars, swing)
+//         "quarter" → previous quarter's H/L/C (for 1W bars, positional)
+function scoreCamarilla(bars, period = "month") {
+  if (bars.length < 10) return zero("Camarilla", "need more bars");
   const now = bars[bars.length - 1].t;
-  const curYM = now.getFullYear() * 12 + now.getMonth();
-  const prevMonthBars = bars.filter(b => {
-    const ym = b.t.getFullYear() * 12 + b.t.getMonth();
-    return ym === curYM - 1;
-  });
-  if (prevMonthBars.length < 5) return zero("Camarilla", "no prior month data");
-  const H = Math.max(...prevMonthBars.map(b => b.h));
-  const L = Math.min(...prevMonthBars.map(b => b.l));
-  const C = prevMonthBars[prevMonthBars.length - 1].c;
+  let prevPeriodBars;
+  let periodLabel;
+
+  if (period === "day") {
+    // Group bars by date string, find the last full prior day
+    const dateOf = b => b.t.toISOString().slice(0, 10);
+    const today = dateOf(now);
+    const priorBars = bars.filter(b => dateOf(b) !== today);
+    if (priorBars.length === 0) return zero("Camarilla", "no prior day");
+    const lastPriorDate = dateOf(priorBars[priorBars.length - 1]);
+    prevPeriodBars = priorBars.filter(b => dateOf(b) === lastPriorDate);
+    periodLabel = "Daily";
+  } else if (period === "quarter") {
+    // Quarter index = year * 4 + (month / 3)
+    const qIdx = d => d.getFullYear() * 4 + Math.floor(d.getMonth() / 3);
+    const curQ = qIdx(now);
+    prevPeriodBars = bars.filter(b => qIdx(b.t) === curQ - 1);
+    periodLabel = "Quarterly";
+  } else {
+    // Default: previous calendar month
+    const curYM = now.getFullYear() * 12 + now.getMonth();
+    prevPeriodBars = bars.filter(b => {
+      const ym = b.t.getFullYear() * 12 + b.t.getMonth();
+      return ym === curYM - 1;
+    });
+    periodLabel = "Monthly";
+  }
+
+  if (!prevPeriodBars || prevPeriodBars.length < 1) return zero("Camarilla", `no prior ${period}`);
+  const H = Math.max(...prevPeriodBars.map(b => b.h));
+  const L = Math.min(...prevPeriodBars.map(b => b.l));
+  const C = prevPeriodBars[prevPeriodBars.length - 1].c;
   const R = H - L;
   const piv = (H + L + C) / 3;
   const levels = {
-    H6: C + R * 1.1 * 1.5,    // explosive breakout
-    H4: C + R * 1.1 / 2,      // breakout
-    H3: C + R * 1.1 / 4,      // resistance
+    H6: C + R * 1.1 * 1.5,
+    H4: C + R * 1.1 / 2,
+    H3: C + R * 1.1 / 4,
     H2: C + R * 1.1 / 6,
     H1: C + R * 1.1 / 12,
     P:  piv,
     L1: C - R * 1.1 / 12,
     L2: C - R * 1.1 / 6,
-    L3: C - R * 1.1 / 4,      // support
-    L4: C - R * 1.1 / 2,      // breakdown
+    L3: C - R * 1.1 / 4,
+    L4: C - R * 1.1 / 2,
     L6: C - R * 1.1 * 1.5,
   };
   const cur = last(bars).c;
 
   let s = 0, label;
-  if (cur > levels.H4) { s = 8;  label = "Above H4 — Breakout"; }
-  else if (cur > levels.H3) { s = 5; label = "Above H3 — Bullish"; }
-  else if (cur > levels.P)  { s = 2; label = "Above Pivot"; }
-  else if (cur > levels.L3) { s = -2; label = "Below Pivot"; }
-  else if (cur > levels.L4) { s = -5; label = "Below L3 — Bearish"; }
-  else { s = -8; label = "Below L4 — Breakdown"; }
+  if (cur > levels.H4) { s = 8;  label = `Above H4 — Breakout (${periodLabel})`; }
+  else if (cur > levels.H3) { s = 5; label = `Above H3 — Bullish (${periodLabel})`; }
+  else if (cur > levels.P)  { s = 2; label = `Above Pivot (${periodLabel})`; }
+  else if (cur > levels.L3) { s = -2; label = `Below Pivot (${periodLabel})`; }
+  else if (cur > levels.L4) { s = -5; label = `Below L3 — Bearish (${periodLabel})`; }
+  else { s = -8; label = `Below L4 — Breakdown (${periodLabel})`; }
 
-  // Distance to next level (for trade planning)
-  const detail =
-    `P=${piv.toFixed(1)}, H3=${levels.H3.toFixed(1)}, L3=${levels.L3.toFixed(1)}`;
-  return { score: s, label, detail, levels };
+  const detail = `P=${piv.toFixed(1)} H3=${levels.H3.toFixed(1)} L3=${levels.L3.toFixed(1)}`;
+  return { score: s, label, detail, levels, periodLabel };
 }
 
 // -------- 5. Bull Trap & Bear Trap detection --------
@@ -549,22 +584,22 @@ function verdict(score) {
 // ============================================================================
 // MAIN ANALYZER — called per stock
 // ============================================================================
-async function analyzeStock(symbol) {
-  const bars = await fetchYahooEOD(symbol, "1y", "1d");
+async function analyzeStock(symbol, timeframeKey = "1d") {
+  const tf = TIMEFRAMES[timeframeKey] || TIMEFRAMES["1d"];
+  const bars = await fetchYahoo(symbol, timeframeKey);
   if (!bars || bars.length < 30) throw new Error("Not enough data");
   const closes = bars.map(b => b.c);
   const lastBar = last(bars);
   const prevClose = bars[bars.length - 2]?.c ?? lastBar.c;
   const change = lastBar.c - prevClose;
   const changePct = (change / prevClose) * 100;
-  // ATR for stop-loss suggestion
   const atr14 = atr(bars, 14);
 
   const scores = {
     bb:         scoreBB(bars),
     vcp:        scoreVCP(bars),
     smartMoney: scoreSmartMoney(bars),
-    camarilla:  scoreCamarilla(bars),
+    camarilla:  scoreCamarilla(bars, tf.camarillaPeriod),
     traps:      scoreTraps(bars),
     crtTbs:     scoreCRT_TBS(bars),
     breakout:   scoreBreakout(bars),
@@ -575,7 +610,7 @@ async function analyzeStock(symbol) {
   const composite = compositeScore(scores);
   const v = verdict(composite);
 
-  // Trade plan (rough): stop = 1.5 ATR away, target = 3 ATR
+  // Trade plan: stop = 1.5 ATR, targets = 2/4 ATR
   const a = last(atr14) || lastBar.c * 0.02;
   const trade = composite > 0
     ? { side: "LONG",  entry: lastBar.c, sl: lastBar.c - 1.5 * a, t1: lastBar.c + 2 * a, t2: lastBar.c + 4 * a }
@@ -583,6 +618,7 @@ async function analyzeStock(symbol) {
 
   return {
     symbol,
+    timeframe: timeframeKey,
     price: lastBar.c,
     change, changePct,
     volume: lastBar.v,
@@ -595,7 +631,7 @@ async function analyzeStock(symbol) {
 
 // Expose globally
 window.FNOEngine = {
-  fetchYahooEOD, analyzeStock,
+  fetchYahoo, fetchYahooEOD, analyzeStock, TIMEFRAMES,
   // expose for unit-style tests in dev
   _ind: { sma, ema, rsi, bollingerBands, atr, adLine, obv, lrSlope, swings },
   WEIGHTS, verdict, compositeScore,

@@ -1,8 +1,20 @@
 # 📈 NSE F&O Quant Scanner
 
-A **multi-factor scoring engine** for Indian derivatives (NSE F&O segment) that runs entirely in your browser. Pulls End-of-Day data from Yahoo Finance, computes 9 technical indicators per stock, and ranks ~200 F&O stocks with a composite **STRONG BUY / BUY / NEUTRAL / SELL / STRONG SELL** verdict.
+A **multi-factor, multi-timeframe scoring engine** for Indian derivatives (NSE F&O segment) that runs entirely in your browser. Pulls OHLCV data from Yahoo Finance on three timeframes — **1 Hour, Daily (EOD), and Weekly** — computes 9 technical indicators per stock, and ranks ~200 F&O stocks with a composite **STRONG BUY / BUY / NEUTRAL / SELL / STRONG SELL** verdict.
 
 **Live demo:** Deploy to GitHub Pages in 5 minutes (see below).
+
+---
+
+## 🕐 Multi-Timeframe Support
+
+Toggle between three timeframes at the top — all 9 indicators recompute on the selected bars:
+
+| Timeframe | Bars Used        | Camarilla Pivot Source     | Best For                          |
+|-----------|------------------|----------------------------|-----------------------------------|
+| **1H**    | Last 60 days, hourly close | Previous trading day | Intraday F&O, BTST, short-term scalps |
+| **1D**    | Last 1 year, EOD daily      | Previous calendar month | Swing trading (3–15 days)             |
+| **1W**    | Last 5 years, weekly close  | Previous quarter        | Positional trades (weeks–months)      |
 
 ---
 
@@ -15,7 +27,7 @@ The scanner scores each F&O stock on **9 independent factors**, then combines th
 | 1 | **Bollinger Bands**        | %B position + bandwidth squeeze percentile + mid-line trend             |
 | 2 | **Volume Contraction (VCP)** | Minervini-style tightening bases with drying volume near 52w high      |
 | 3 | **Smart Money Flow**       | A/D Line + OBV slope + high-vol green/red day asymmetry (accumulation) |
-| 4 | **Monthly Camarilla**      | Position relative to H1–H4 / L1–L4 / Pivot from prior calendar month   |
+| 4 | **Camarilla Levels**       | H1–H4 / L1–L4 / Pivot from prior period (day/month/quarter per TF)      |
 | 5 | **Bull / Bear Trap**       | False breakouts (high taken out but closed back below)                 |
 | 6 | **CRT + TBS**              | ICT-style liquidity sweeps + Turtle Soup 20-bar reversals              |
 | 7 | **Breakout / Breakdown**   | 20-bar range tightness + distance to edge                              |
@@ -23,10 +35,12 @@ The scanner scores each F&O stock on **9 independent factors**, then combines th
 | 9 | **EMA Trend Stack**        | 20 > 50 > 200 bullish stack (bonus trend-confirmation filter)          |
 
 **Additional features:**
-- ⚡ Parallel scanning (6 concurrent fetches) — full F&O universe in ~60–90 seconds
+- 🕐 **Multi-timeframe**: 1H / 1D / 1W toggle (all indicators recompute)
+- ⚡ Parallel scanning — full F&O universe in ~60–120 seconds
 - 🔍 Filter by verdict, sector, score range, or symbol search
+- 🖱 **Click any stat card** (Strong Buy / Buy / Sell / Strong Sell) to filter by that verdict
 - ↕ Sortable columns
-- 📊 Inline 30-day sparkline per stock
+- 📊 Inline 30-bar sparkline per stock
 - 🔎 Click any row → full indicator breakdown + Camarilla levels + suggested trade plan (entry / SL / targets / ATR)
 - 📥 Export results to CSV
 - 🎯 Suggested stop-loss & targets based on ATR(14)

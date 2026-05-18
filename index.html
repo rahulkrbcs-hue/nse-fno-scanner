@@ -24,14 +24,24 @@
       <div class="brand-mark">◢◤</div>
       <div class="brand-text">
         <div class="brand-name">NSE · F&amp;O QUANT</div>
-        <div class="brand-sub">EOD Multi-Factor Scoring Engine</div>
+        <div class="brand-sub">Multi-Timeframe Scoring Engine</div>
       </div>
     </div>
 
+    <!-- Timeframe segmented control -->
+    <div class="tf-toggle" role="group" aria-label="Timeframe">
+      <button class="tf-btn" data-tf="1h"  title="Hourly bars · daily Camarilla · last 60 days">1H</button>
+      <button class="tf-btn tf-active" data-tf="1d"  title="Daily bars · monthly Camarilla · last 1 year">1D</button>
+      <button class="tf-btn" data-tf="1wk" title="Weekly bars · quarterly Camarilla · last 5 years">1W</button>
+    </div>
+
     <div class="topbar-meta">
-      <div class="meta-pill"><span class="meta-dot live"></span><span>EOD · Yahoo Finance</span></div>
-      <div class="meta-pill"><span id="universe-count">—</span>&nbsp;Stocks in Universe</div>
-      <div class="meta-pill"><span id="last-updated">—</span></div>
+      <div class="meta-pill">
+        <span class="meta-dot live"></span>
+        <span id="tf-pill-label">DAILY</span>
+      </div>
+      <div class="meta-pill"><span id="universe-count">—</span>&nbsp;Stocks</div>
+      <div class="meta-pill meta-pill-wide" id="tf-pill-desc">End-of-Day bars · monthly Camarilla · swing trading</div>
     </div>
   </header>
 

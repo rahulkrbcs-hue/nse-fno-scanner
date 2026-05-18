@@ -3,6 +3,7 @@
 // ============================================================================
 
 const STATE = {
+  timeframe: "1d",  // "1h" | "1d" | "1wk" — selected timeframe
   results: [],     // analyzed stocks
   filtered: [],    // after filters applied
   sortKey: "composite",
@@ -328,7 +329,7 @@ async function runScan() {
   await runWithConcurrency(
     stocks,
     async (s) => {
-      const r = await FNOEngine.analyzeStock(s.symbol);
+      const r = await FNOEngine.analyzeStock(s.symbol, STATE.timeframe);
       STATE.results.push(r);
       // Re-render incrementally every 5 stocks
       if (STATE.results.length % 5 === 0) {
@@ -337,7 +338,7 @@ async function runScan() {
       }
       return r;
     },
-    6,    // concurrency — keep moderate to avoid rate limiting
+    STATE.timeframe === "1h" ? 4 : 6,    // hourly is heavier — back off a bit
     (done) => {
       progressBar.style.width = `${(done / total) * 100}%`;
       progressLabel.textContent = `${done} / ${total} stocks analyzed`;
@@ -394,6 +395,31 @@ function init() {
   });
   ["filter-verdict","filter-sector","filter-search","filter-min-score","filter-max-score"]
     .forEach(id => document.getElementById(id).addEventListener("input", applyFilters));
+
+  // Timeframe toggle → switch timeframe, clear results, auto-rescan
+  document.querySelectorAll(".tf-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tf = btn.dataset.tf;
+      if (STATE.scanning || tf === STATE.timeframe) return;
+      STATE.timeframe = tf;
+      // Update active state
+      document.querySelectorAll(".tf-btn").forEach(b => b.classList.remove("tf-active"));
+      btn.classList.add("tf-active");
+      // Update meta pill
+      const tfInfo = FNOEngine.TIMEFRAMES[tf];
+      document.getElementById("tf-pill-label").textContent = tfInfo.label;
+      document.getElementById("tf-pill-desc").textContent = tfInfo.description;
+      // Clear old results (they're now stale for this timeframe)
+      STATE.results = [];
+      STATE.filtered = [];
+      renderTable();
+      renderStats();
+      // Hint
+      document.getElementById("progress-label").textContent = `Switched to ${tfInfo.label} — click RUN SCAN`;
+      document.getElementById("progress-wrap").style.display = "block";
+      document.getElementById("progress-fill").style.width = "0%";
+    });
+  });
 
   // Stat-card click → filter by verdict
   document.querySelectorAll(".stat[data-verdict]").forEach(stat => {
